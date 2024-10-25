@@ -114,18 +114,39 @@ class Dashboard(QtWidgets.QMainWindow, Ui_MainWindow):
     
     def show_details(self):
         current_row = self.list_view.currentRow()
-        if current_row != -1:
-            item_text = self.list_view.item(current_row).text()
-            date, todo = item_text.split(" - ", 1)
-            self.cursor.execute("SELECT description FROM todos WHERE date = ? AND todo = ?", (date, todo))
-            row = self.cursor.fetchone()
-            if row:
-                print(self.details_window)
-                d_window = DetailsWindow() #creates detailWindow
-                d_window.show_details(todo,date,row[0])
-                d_window.on_closed.connect(self.closed_detail_window) # connects on_closed with function
-                self.details_window.append(d_window) #appends detailWindow to currectly opened array of detailWindows
-                print(self.details_window)
+        if current_row == -1:
+            return  # Exit the function if no row is selected
+
+        item_text = self.list_view.item(current_row).text()
+        date, todo = item_text.split(" - ", 1)
+        
+        # Fetch the details from the database
+        self.cursor.execute("SELECT description FROM todos WHERE date = ? AND todo = ?", (date, todo))
+        row = self.cursor.fetchone()
+        
+        if not row:
+            return  # Exit if no data is found
+
+        # Check if a details window for this item is already open
+        existing_window = self.get_existing_window(todo, date)
+        if existing_window:
+            existing_window.activateWindow()  # Focus on the existing window
+            existing_window.raise_()  # Bring the window to the front
+            return
+
+        # Create a new details window
+        d_window = DetailsWindow(todo, date, row[0])  # Create a new instance of DetailsWindow
+        d_window.show_details(todo, date, row[0])  # Display details in the window
+        d_window.on_closed.connect(self.closed_detail_window)  # Connect closed signal to remove the window
+        self.details_window.append(d_window)  # Add the new window to the list of open windows
+
+    def get_existing_window(self, todo, date):
+        """Return an already open window if one exists for the given todo and date"""
+        for window in self.details_window:
+            if window.todo == todo and window.date == date:
+                return window  # Return the window if a match is found
+        return None  # Return None if no matching window is found
+
     
     def closeEvent(self, event):
         self.conn.close()

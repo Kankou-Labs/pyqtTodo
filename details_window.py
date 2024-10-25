@@ -7,8 +7,11 @@ from utils import resource_path
 
 class DetailsWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     on_closed = pyqtSignal(object) #define a signal on detailWindow close
-    def __init__(self, parent=None):
+    def __init__(self, todo, date, description, parent=None):
         super().__init__(parent)
+        self.todo = todo
+        self.date = date
+        self.description = description
         # uic.loadUi(resource_path(os.path.join('ui_files', 'anotherwindow.ui')), self)
         self.setupUi(self)
         
