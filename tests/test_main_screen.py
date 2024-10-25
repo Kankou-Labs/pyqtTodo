@@ -16,19 +16,25 @@ class TestDashboard(unittest.TestCase):
         cls.app = QApplication(sys.argv)
 
     def setUp(self):
-        # Set up an in-memory SQLite database
+        # Set up an in-memory SQLite database with the correct schema
         self.conn = sqlite3.connect(':memory:')
         self.cursor = self.conn.cursor()
-        self.cursor.execute("CREATE TABLE todos (date DATE, todo TEXT, description TEXT)")
+        self.cursor.execute("""
+            CREATE TABLE todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date DATE,
+                todo TEXT,
+                description TEXT
+            )
+        """)
 
-        # Patch the database connection in the TodoApp class to use the in-memory database
+        # Patch the database connection in the Dashboard class to use the in-memory database
         patcher = patch('dashboard.Dashboard.init_db', return_value=(self.conn, self.cursor))
         self.addCleanup(patcher.stop)
         patcher.start()
 
         # Initialize the main window after patching the DB
         self.todo_app = Dashboard()
-        # self.todo_app.show()
 
     def test_add_todo(self):
         # Access the UI elements from the instance of TodoApp
@@ -50,7 +56,7 @@ class TestDashboard(unittest.TestCase):
         self.cursor.execute("SELECT * FROM todos")
         rows = self.cursor.fetchall()
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0][1], "Test Todo Item")
+        self.assertEqual(rows[0][2], "Test Todo Item")
 
     def test_remove_todo(self):
         # Access the UI elements from the instance of TodoApp
