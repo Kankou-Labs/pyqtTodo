@@ -27,24 +27,23 @@ class Dashboard(QtWidgets.QMainWindow, Ui_MainWindow):
         self.logo_label = self.findChild(QtWidgets.QLabel, 'logoLabel')
         self.title = self.findChild(QtWidgets.QLabel, 'label')
         
+        # Set up connections
         self.date_input.setDate(QtCore.QDate.currentDate())
-        
         self.load_todos()
         self.add_button.clicked.connect(self.add_todo)
         self.remove_button.clicked.connect(self.remove_todo)
         self.list_view.itemDoubleClicked.connect(self.show_details)
         
-        self.details_window = [] #array of DetailsWindow(not inforced)
+        # Array to track details windows
+        self.details_window = []
 
-        #press enter to add todo
+        # Shortcut to add todo on pressing Enter
         shortcut = QShortcut(QKeySequence("Return"), self)
         shortcut.activated.connect(self.handle_enter_pressed)
 
-        #Shift + Eneter to new line in the description field
+        # Shift + Enter to insert newline in description field
         self.description_input.installEventFilter(self)
     
-    
-
     # event of Shfit + Enter to new line in the description field
     def eventFilter(self, obj, event):
         if obj == self.description_input and event.type() == QtCore.QEvent.Type.KeyPress:
@@ -73,64 +72,111 @@ class Dashboard(QtWidgets.QMainWindow, Ui_MainWindow):
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("CREATE TABLE IF NOT EXISTS todos (date DATE, todo TEXT, description TEXT)")
+        
+        # Check if the todos table has the correct schema
+        cursor.execute("PRAGMA table_info(todos)")
+        columns = cursor.fetchall()
+        if len(columns) != 4 or columns[0][1] != 'id':
+            print("Recreating 'todos' table with 'id' column.")
+            cursor.execute("DROP TABLE IF EXISTS todos")
+            cursor.execute("""
+                CREATE TABLE todos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date DATE,
+                    todo TEXT,
+                    description TEXT
+                )
+            """)
+        else:
+            print("'todos' table already exists with the correct schema.")
         return conn, cursor
     
     def load_todos(self):
-        self.cursor.execute("SELECT * FROM todos")
+        self.cursor.execute("SELECT id, date, todo FROM todos")
         self.rows = self.cursor.fetchall()
+        self.list_view.clear()
         for row in self.rows:
-            self.list_view.addItem(f"{row[0]} - {row[1]}")
+            self.list_view.addItem(f"{row[1]} - {row[2]}")  # Display date and todo in the list view
 
     def add_todo(self):
         if self.todo_input.text() == "":
             return
-        
-        date = self.date_input.date()
+
+        date = self.date_input.date().toString()
         todo = self.todo_input.text()
         description = self.description_input.toPlainText()
-        self.list_view.addItem(f"{date.toString()} - {todo}")
-        
-        self.cursor.execute("INSERT INTO todos VALUES (?, ?, ?)", (date.toString(), todo, description))
+        self.cursor.execute("INSERT INTO todos (date, todo, description) VALUES (?, ?, ?)", (date, todo, description))
         self.conn.commit()
         
+        # Clear input fields after adding
         self.date_input.setDate(QtCore.QDate.currentDate())
         self.todo_input.clear()
         self.description_input.clear()
-        
+
+        # Refresh the list of todos
         self.refresh_rows()
 
     def remove_todo(self):
         current_row = self.list_view.currentRow()
         if current_row != -1 and current_row < len(self.rows):
-            self.cursor.execute("DELETE FROM todos WHERE date = ? AND todo = ? AND description = ?", self.rows[current_row])
+            task_id = self.rows[current_row][0]  # Use id to delete the selected item
+            
+            # Close the window associated with the deleted task, if it exists
+            window_to_close = self.get_existing_window(task_id)
+            if window_to_close:
+                window_to_close.close()  # Close the window            
+            # Delete the item from the database and the list view
+            self.cursor.execute("DELETE FROM todos WHERE id = ?", (task_id,))
             self.conn.commit()
             self.list_view.takeItem(current_row)
             self.refresh_rows()
+
         
     def refresh_rows(self):
-        self.cursor.execute("SELECT * FROM todos")
+        self.cursor.execute("SELECT id, date, todo FROM todos")
         self.rows = self.cursor.fetchall()
+        self.list_view.clear()
+        for row in self.rows:
+            self.list_view.addItem(f"{row[1]} - {row[2]}")  # Display date and todo in the list view
     
     def show_details(self):
         current_row = self.list_view.currentRow()
-        if current_row != -1:
-            item_text = self.list_view.item(current_row).text()
-            date, todo = item_text.split(" - ", 1)
-            self.cursor.execute("SELECT description FROM todos WHERE date = ? AND todo = ?", (date, todo))
-            row = self.cursor.fetchone()
-            if row:
-                print(self.details_window)
-                d_window = DetailsWindow() #creates detailWindow
-                d_window.show_details(todo,date,row[0])
-                d_window.on_closed.connect(self.closed_detail_window) # connects on_closed with function
-                self.details_window.append(d_window) #appends detailWindow to currectly opened array of detailWindows
-                print(self.details_window)
-    
+        if current_row == -1:
+            return  # Exit if no row is selected
+
+        task_id = self.rows[current_row][0]  # Retrieve id from the selected row
+        self.cursor.execute("SELECT todo, date, description FROM todos WHERE id = ?", (task_id,))
+        row = self.cursor.fetchone()
+
+        if not row:
+            return  # Exit if no data is found
+
+        todo, date, description = row
+
+        # Check if a details window for this item is already open
+        existing_window = self.get_existing_window(task_id)
+        if existing_window:
+            existing_window.activateWindow()
+            existing_window.raise_()
+            return
+
+        # Create a new details window with the unique id
+        d_window = DetailsWindow(task_id, todo, date, description)
+        d_window.show_details(todo, date, description)
+        d_window.on_closed.connect(self.closed_detail_window)
+        self.details_window.append(d_window)
+
+    def get_existing_window(self, task_id):
+        """Return an already open window if one exists for the given task_id"""
+        for window in self.details_window:
+            if window.task_id == task_id:
+                return window
+        return None
+
     def closeEvent(self, event):
         self.conn.close()
         event.accept()
 
-    def closed_detail_window(self,window):
-        if window in self.details_window: #if found in array of instanced detailWindow
-            self.details_window.remove(window) # then remove window
+    def closed_detail_window(self, window):
+        if window in self.details_window:
+            self.details_window.remove(window)
